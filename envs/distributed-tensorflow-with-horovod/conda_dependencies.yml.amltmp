@@ -1,0 +1,22 @@
+channels:
+- conda-forge
+dependencies:
+- python=3.6.2
+- pip:
+  - azureml-core==1.25.0
+  - azureml-defaults==1.25.0
+  - azureml-telemetry==1.25.0
+  - azureml-train-restclients-hyperdrive==1.25.0
+  - azureml-train-core==1.25.0
+  - opencv-python==3.3.0.9
+  - azureml-sdk
+  - azureml-widgets
+  - keras
+  - tensorflow-gpu==2.2.0
+  - matplotlib
+  - pandas
+  - torch==1.6.0
+  - torchvision==0.7.0
+  - horovod==0.19.5
+  - sklearn
+name: azureml_00090fcf5a9a4207d8ac8d8c76cb032e
