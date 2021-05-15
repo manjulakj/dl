@@ -22,8 +22,13 @@ from functools import partial
 import tensorflow.keras.backend as K
 from itertools import product
 from keras import backend as kb
-
 from azureml.core import Run
+from tensorflow.keras.metrics import AUC
+
+
+#############################
+## python effusion_detector.py --data-folder '/tmp/data/data.zip'
+#############################
 
 rn.seed(30)
 np.random.seed(30)
@@ -49,34 +54,27 @@ def preprocess_img(img, mode):
     normalized_img = cv2.normalize(resized_img, None, alpha=0, beta=1, norm_type=cv2.NORM_MINMAX, dtype=cv2.CV_32F)[:,:,np.newaxis]
     if mode == 'train':
         if np.random.randn() > 0:
-            normalized_img = datagen.random_transform(normalized_img)
+            kernel = np.ones((5,5),np.uint8)
+            opened = cv2.morphologyEx(normalized_img, cv2.MORPH_OPEN, kernel)[:,:,np.newaxis]
+            normalized_img = datagen.random_transform(opened)
     return normalized_img
 
 
-def w_categorical_crossentropy(y_true, y_pred, weights):
-    nb_cl = len(weights)
-    final_mask = K.zeros_like(y_pred[:, 0])
-    y_pred_max = K.max(y_pred, axis=1)
-    y_pred_max = K.reshape(y_pred_max, (K.shape(y_pred)[0], 1))
-    y_pred_max_mat = K.cast(K.equal(y_pred, y_pred_max), K.floatx())
-    for c_p, c_t in product(range(nb_cl), range(nb_cl)):
-        final_mask += (weights[c_t, c_p] * y_pred_max_mat[:, c_p] * y_true[:, c_t])
-    cross_ent = K.categorical_crossentropy(y_true, y_pred, from_logits=False)
-    return cross_ent * final_mask
-
-
 def prepare_model(img_rows, img_cols, img_channels, nb_classes):
-   cnn = Sequential()
-   cnn.add(Conv2D(32, (3, 3), padding='same', activation='relu', input_shape=(img_rows,img_cols,img_channels)))
-   cnn.add(MaxPooling2D(pool_size=(2, 2)))
-   cnn.add(Conv2D(64, (3, 3), padding='same', activation='relu',))
-   cnn.add(MaxPooling2D(pool_size=(2, 2)))
-   cnn.add(Flatten())
-   cnn.add(Dense(256))
-   cnn.add(Dense(nb_classes,activation='softmax'))
-   cnn.compile(optimizer='sgd', loss='categorical_crossentropy', metrics=['accuracy', tf.keras.metrics.AUC()])
-   print(cnn.summary())
-   return cnn;
+    cnn = Sequential()
+    cnn.add(Conv2D(32, (3, 3), padding='same', activation='relu', input_shape=(img_rows,img_cols,img_channels)))
+    cnn.add(MaxPooling2D(pool_size=(2, 2)))
+    cnn.add(Conv2D(64, (3, 3), padding='same', activation='relu',))
+    cnn.add(MaxPooling2D(pool_size=(2, 2)))
+    cnn.add(Conv2D(128, (3, 3), padding='same', activation='relu',))
+    cnn.add(MaxPooling2D(pool_size=(2, 2)))
+    cnn.add(Flatten())
+    cnn.add(Dense(512))
+    cnn.add(Dense(512))
+    cnn.add(Dense(nb_classes,activation='sigmoid'))
+    cnn.compile(optimizer='sgd', loss='binary_crossentropy', metrics=['accuracy', AUC(name='auc')])
+    print(cnn.summary())
+    return cnn;
 
 
 class AugmentedDataGenerator(tf.keras.utils.Sequence):
@@ -146,7 +144,7 @@ class AugmentedDataGenerator(tf.keras.utils.Sequence):
                 continue
         X = np.delete(X, delete_rows, axis=0)
         y = np.delete(y, delete_rows, axis=0)
-        return X, k.utils.to_categorical(y, num_classes=self.n_classes)
+        return X, y
 
 
 class roc_callback(Callback):
@@ -201,25 +199,21 @@ print("TensorFlow version:", tf.__version__)
 parser = argparse.ArgumentParser()
 parser.add_argument('--data-folder', type=str, dest='data_folder', default='data', help='data folder mounting point')
 parser.add_argument('--batch-size', type=int, dest='batch_size', default=32, help='mini batch size for training')
+parser.add_argument('--epochs', type=int, dest='epochs', default=10, help='Number of Epochs')
 args = parser.parse_args()
 
 DATASET_PATH = prep_data(args.data_folder)
 
-bin_weights = np.ones((2,2))
-bin_weights[0, 1] = 5
-bin_weights[1, 0] = 5
-ncce = partial(w_categorical_crossentropy, weights=bin_weights)
-ncce.__name__ ='w_categorical_crossentropy'
-
 n_inputs = 256 * 256
 n_outputs = 2
-n_epochs = 10
-batch_size = 30 #args.batch_size
+n_epochs = args.epochs
+batch_size = args.batch_size
 print('Data Folder', DATASET_PATH)
 print('Batch Size', batch_size)
+print('Epochs', n_epochs)
 
 # Build neural network model.
-neural_net = prepare_model(256, 256, 1, 2)
+neural_net = prepare_model(256, 256, 1, 1)
 
 # start an Azure ML run
 run = Run.get_context()
@@ -228,17 +222,18 @@ run = Run.get_context()
 start_time = time.perf_counter()
 
 os.makedirs('./outputs/model', exist_ok=True)
-filepath = './outputs/model/model.h5'
+filepath = './outputs/model/best_model.h5'
 
 # initiating call backs
 auc_logger = roc_callback()
 decay = DecayLR()
 checkpoint = ModelCheckpoint(filepath, monitor='val_auc', verbose=1, save_best_only=True, mode='max')
+ES = tf.keras.callbacks.EarlyStopping(monitor='val_auc', patience=5, verbose=1, mode='max')
 
 training_generator = AugmentedDataGenerator('train', ablation=None)
 validation_generator = AugmentedDataGenerator('val', ablation=None)
 
-history = neural_net.fit(training_generator, epochs=10, validation_data=validation_generator, verbose=2, callbacks=[auc_logger, decay])
+history = neural_net.fit(training_generator, epochs=n_epochs, validation_data=validation_generator, verbose=2, callbacks=[auc_logger, ES, decay, checkpoint])
 
 stop_time = time.perf_counter()
 training_time = (stop_time - start_time) * 1000
