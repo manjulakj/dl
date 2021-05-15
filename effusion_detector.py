@@ -47,7 +47,7 @@ datagen = ImageDataGenerator(
     height_shift_range=0,
     vertical_flip=False,)
 
-
+# preprocess images for training and validation, for training transformations are applied randomly.
 def preprocess_img(img, mode):
     normalizedImg = np.zeros((256, 256))
     resized_img = cv2.resize(img, (256,256))
@@ -59,7 +59,7 @@ def preprocess_img(img, mode):
             normalized_img = datagen.random_transform(opened)
     return normalized_img
 
-
+# creates and returns a cnn model
 def prepare_model(img_rows, img_cols, img_channels, nb_classes):
     cnn = Sequential()
     cnn.add(Conv2D(32, (3, 3), padding='same', activation='relu', input_shape=(img_rows,img_cols,img_channels)))
@@ -76,7 +76,7 @@ def prepare_model(img_rows, img_cols, img_channels, nb_classes):
     print(cnn.summary())
     return cnn;
 
-
+# this class ensures there is continuous stream of data to the model for training
 class AugmentedDataGenerator(tf.keras.utils.Sequence):
     'Generates data for Keras'
     def __init__(self, mode='train', ablation=None, disease_cls = ['nofinding', 'effusion'], 
@@ -147,6 +147,7 @@ class AugmentedDataGenerator(tf.keras.utils.Sequence):
         return X, y
 
 
+# calculates "validation auc" for every epoch
 class roc_callback(Callback):
     
     def on_train_begin(self, logs={}):
@@ -169,7 +170,7 @@ class roc_callback(Callback):
         run.log('Accuracy', logs['val_accuracy'])
         run.log('AUC', logs['val_auc'])
 
-
+# applys decaying learning rate for each epoch
 class DecayLR(tf.keras.callbacks.Callback):
     def __init__(self, base_lr=0.01, decay_epoch=1):
         super(DecayLR, self).__init__()
@@ -185,7 +186,7 @@ class DecayLR(tf.keras.callbacks.Callback):
         self.lr_history.append(kb.get_value(self.model.optimizer.lr))
         kb.set_value(self.model.optimizer.lr, new_lr)
 
-
+# extracting data
 def prep_data(filename):
     directory_to_extract_to = '/var/tmp/effusion/'
     os.makedirs(directory_to_extract_to, exist_ok=True)
@@ -196,16 +197,16 @@ def prep_data(filename):
 
 print("TensorFlow version:", tf.__version__)
 
+# loading arguments from job definition
 parser = argparse.ArgumentParser()
 parser.add_argument('--data-folder', type=str, dest='data_folder', default='data', help='data folder mounting point')
 parser.add_argument('--batch-size', type=int, dest='batch_size', default=32, help='mini batch size for training')
 parser.add_argument('--epochs', type=int, dest='epochs', default=10, help='Number of Epochs')
 args = parser.parse_args()
-
 DATASET_PATH = prep_data(args.data_folder)
 
+# few constants
 n_inputs = 256 * 256
-n_outputs = 2
 n_epochs = args.epochs
 batch_size = args.batch_size
 print('Data Folder', DATASET_PATH)
@@ -230,6 +231,7 @@ decay = DecayLR()
 checkpoint = ModelCheckpoint(filepath, monitor='val_auc', verbose=1, save_best_only=True, mode='max')
 ES = tf.keras.callbacks.EarlyStopping(monitor='val_auc', patience=5, verbose=1, mode='max')
 
+# create data streams
 training_generator = AugmentedDataGenerator('train', ablation=None)
 validation_generator = AugmentedDataGenerator('val', ablation=None)
 
