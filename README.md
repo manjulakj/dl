@@ -26,7 +26,7 @@ There are two types of communication approaches. This applies to both the data-p
 
 In the de-centralized communication pattern, each node communicates with every other node to update the parameters. The advantage with this approach is that peer-peer updates are faster, sparse updates can be made by exchanging only what has changed and there is no single point of failure.
 
-![centr-decent-training](images/Aspose.Words.42af1e07-83c8-434d-8d35-9509a572061e.003.png)Centralized vs De-Centralized training.
+![centr-decent-training](images/Aspose.Words.42af1e07-83c8-434d-8d35-9509a572061e.003.png)
 
 ## Synchronous and asynchronous updates.
 
